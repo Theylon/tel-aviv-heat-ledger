@@ -81,6 +81,20 @@ type WeatherData = {
 const chartWidth = 760;
 const chartHeight = 260;
 const pad = { top: 24, right: 24, bottom: 34, left: 46 };
+const monthTicks = [
+  { month: "Jan", day: 1 },
+  { month: "Feb", day: 32 },
+  { month: "Mar", day: 60 },
+  { month: "Apr", day: 91 },
+  { month: "May", day: 121 },
+  { month: "Jun", day: 152 },
+  { month: "Jul", day: 182 },
+  { month: "Aug", day: 213 },
+  { month: "Sep", day: 244 },
+  { month: "Oct", day: 274 },
+  { month: "Nov", day: 305 },
+  { month: "Dec", day: 335 },
+];
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(
@@ -118,6 +132,163 @@ const tempColor = (value: number) => {
   return "#497996";
 };
 
+const averageByDayOfYear = (snapshots: WeatherData["yearSnapshots"]) => {
+  const grouped = new Map<number, Day[]>();
+
+  for (const year of snapshots) {
+    for (const day of year.days) {
+      if (!grouped.has(day.doy)) grouped.set(day.doy, []);
+      grouped.get(day.doy)!.push(day);
+    }
+  }
+
+  return [...grouped.entries()]
+    .map(([doy, days]) => ({
+      doy,
+      tmax: days.reduce((sum, day) => sum + day.tmax, 0) / days.length,
+      tmin: days.reduce((sum, day) => sum + day.tmin, 0) / days.length,
+      tavg: days.reduce((sum, day) => sum + day.tavg, 0) / days.length,
+    }))
+    .sort((a, b) => a.doy - b.doy);
+};
+
+const makeLine = <T extends { doy: number }>(
+  rows: T[],
+  value: (row: T) => number,
+  x: (doy: number) => number,
+  y: (value: number) => number,
+) => rows.map((row, index) => `${index === 0 ? "M" : "L"} ${x(row.doy)} ${y(value(row))}`).join(" ");
+
+function HistoricalDailyChart({ data }: { data: WeatherData }) {
+  const years = data.yearSnapshots.map((entry) => entry.year);
+  const [selectedYear, setSelectedYear] = useState(years.at(-1)!);
+  const [hoverDoy, setHoverDoy] = useState<number | null>(null);
+  const normals = useMemo(() => averageByDayOfYear(data.yearSnapshots), [data.yearSnapshots]);
+  const selected = data.yearSnapshots.find((entry) => entry.year === selectedYear)!;
+  const selectedByDoy = new Map(selected.days.map((day) => [day.doy, day]));
+  const hoverDay =
+    hoverDoy === null
+      ? null
+      : selectedByDoy.get(hoverDoy) ??
+        selected.days.reduce((closest, day) =>
+          Math.abs(day.doy - hoverDoy) < Math.abs(closest.doy - hoverDoy) ? day : closest,
+        );
+
+  const width = 980;
+  const height = 430;
+  const p = { top: 28, right: 28, bottom: 54, left: 54 };
+  const allValues = [
+    ...normals.flatMap((day) => [day.tmax, day.tmin, day.tavg]),
+    ...selected.days.flatMap((day) => [day.tmax, day.tmin, day.tavg]),
+  ];
+  const yDomain = niceDomain(allValues, 2);
+  const x = (doy: number) => scale(doy, [1, 366], [p.left, width - p.right]);
+  const y = (value: number) => scale(value, yDomain, [height - p.bottom, p.top]);
+  const hoverX = hoverDay ? x(hoverDay.doy) : null;
+
+  return (
+    <section className="atlas-section historical-panel" id="historical">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Daily values vs normal</p>
+          <h2>Compare any year against Tel Aviv{"'"}s historical daily pattern.</h2>
+        </div>
+        <div className="chart-controls">
+          <label htmlFor="history-year">Year</label>
+          <select
+            id="history-year"
+            className="year-select"
+            value={selectedYear}
+            onChange={(event) => {
+              setSelectedYear(Number(event.target.value));
+              setHoverDoy(null);
+            }}
+          >
+            {years.map((year) => (
+              <option key={year} value={year}>
+                {year}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="historical-chart-wrap">
+        <svg
+          className="historical-chart"
+          viewBox={`0 0 ${width} ${height}`}
+          role="img"
+          onPointerMove={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            const localX = ((event.clientX - rect.left) / rect.width) * width;
+            const doy = Math.round(scale(localX, [p.left, width - p.right], [1, 366]));
+            setHoverDoy(Math.min(366, Math.max(1, doy)));
+          }}
+          onPointerLeave={() => setHoverDoy(null)}
+        >
+          <title>Daily high, low, and mean temperatures compared with historical normals</title>
+          {[10, 15, 20, 25, 30, 35, 40].map((tick) => (
+            <g key={tick}>
+              <line x1={p.left} x2={width - p.right} y1={y(tick)} y2={y(tick)} className="grid-line" />
+              <text x={16} y={y(tick) + 4} className="axis-label">
+                {tick} C
+              </text>
+            </g>
+          ))}
+          {monthTicks.map((tick) => (
+            <g key={tick.month}>
+              <line x1={x(tick.day)} x2={x(tick.day)} y1={p.top} y2={height - p.bottom} className="month-line" />
+              <text x={x(tick.day) + 3} y={height - 18} className="axis-label">
+                {tick.month}
+              </text>
+            </g>
+          ))}
+
+          <path d={makeLine(normals, (day) => day.tmax, x, y)} className="normal-line normal-max" />
+          <path d={makeLine(normals, (day) => day.tmin, x, y)} className="normal-line normal-min" />
+          <path d={makeLine(normals, (day) => day.tavg, x, y)} className="normal-line normal-mean" />
+          <path d={makeLine(selected.days, (day) => day.tmax, x, y)} className="actual-line actual-high" />
+          <path d={makeLine(selected.days, (day) => day.tmin, x, y)} className="actual-line actual-low" />
+          <path d={makeLine(selected.days, (day) => day.tavg, x, y)} className="actual-line actual-mean" />
+
+          {hoverDay && hoverX !== null ? (
+            <g className="hover-layer">
+              <line x1={hoverX} x2={hoverX} y1={p.top} y2={height - p.bottom} className="hover-rule" />
+              <circle cx={hoverX} cy={y(hoverDay.tmax)} r="4" className="actual-high-point" />
+              <circle cx={hoverX} cy={y(hoverDay.tavg)} r="4" className="actual-mean-point" />
+              <circle cx={hoverX} cy={y(hoverDay.tmin)} r="4" className="actual-low-point" />
+            </g>
+          ) : null}
+        </svg>
+      </div>
+
+      <div className="historical-readout">
+        <div className="legend compact">
+          <span><i className="legend-swatch actual-high-swatch" /> Daily high {selectedYear}</span>
+          <span><i className="legend-swatch actual-low-swatch" /> Daily low {selectedYear}</span>
+          <span><i className="legend-swatch actual-mean-swatch" /> Daily mean {selectedYear}</span>
+          <span><i className="legend-swatch normal-mean-swatch" /> Historical normal</span>
+        </div>
+        <div className="tooltip-card" aria-live="polite">
+          {hoverDay ? (
+            <>
+              <strong>{formatDate(hoverDay.date)}</strong>
+              <span>High {hoverDay.tmax.toFixed(1)} C</span>
+              <span>Mean {hoverDay.tavg.toFixed(1)} C</span>
+              <span>Low {hoverDay.tmin.toFixed(1)} C</span>
+            </>
+          ) : (
+            <>
+              <strong>Hover the chart</strong>
+              <span>Inspect daily highs, lows, and mean temperature.</span>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TrendChart({ annual }: { annual: Annual[] }) {
   const years = annual.map((row) => row.year);
   const values = annual.flatMap((row) => [row.avg, row.summerAvg]);
@@ -131,8 +302,8 @@ function TrendChart({ annual }: { annual: Annual[] }) {
   const last = annual.at(-1)!;
 
   return (
-    <section className="panel wide">
-      <div className="panel-heading">
+    <section className="atlas-section">
+      <div className="section-heading">
         <div>
           <p className="eyebrow">Core temperature trend</p>
           <h2>Annual warmth is rising, and summers are rising faster.</h2>
@@ -193,8 +364,8 @@ function HeatDaysChart({ annual }: { annual: Annual[] }) {
   const barWidth = Math.max(8, (chartWidth - pad.left - pad.right) / annual.length - 6);
 
   return (
-    <section className="panel wide">
-      <div className="panel-heading">
+    <section className="atlas-section">
+      <div className="section-heading">
         <div>
           <p className="eyebrow">What feels unbearable</p>
           <h2>Hot days matter, but warm nights are the clearest escalation.</h2>
@@ -247,8 +418,8 @@ function MonthlyHeatmap({ data }: { data: WeatherData }) {
   const height = top + years.length * (cell + gap) + 14;
 
   return (
-    <section className="panel">
-      <div className="panel-heading stacked">
+    <section className="atlas-section">
+      <div className="section-heading stacked">
         <p className="eyebrow">Monthly anomaly map</p>
         <h2>Recent years are warmer in more months, not just in peak summer.</h2>
       </div>
@@ -295,8 +466,8 @@ function SeasonalProfile({ data }: { data: WeatherData }) {
     data.monthAverages.map((row, index) => `${index === 0 ? "M" : "L"} ${x(row.month)} ${y(row[key])}`).join(" ");
 
   return (
-    <section className="panel">
-      <div className="panel-heading stacked">
+    <section className="atlas-section">
+      <div className="section-heading stacked">
         <p className="eyebrow">Seasonal shape</p>
         <h2>The coast shifts from mild winters into long, humid heat.</h2>
       </div>
@@ -333,8 +504,8 @@ function YearCalendar({ data }: { data: WeatherData }) {
   const months = data.monthAverages.map((row) => row.name);
 
   return (
-    <section className="panel wide">
-      <div className="panel-heading">
+    <section className="atlas-section wide">
+      <div className="section-heading">
         <div>
           <p className="eyebrow">Daily texture</p>
           <h2>Scan a year day by day.</h2>
@@ -373,8 +544,8 @@ function YearCalendar({ data }: { data: WeatherData }) {
 
 function RankingTable({ data }: { data: WeatherData }) {
   return (
-    <section className="panel">
-      <div className="panel-heading stacked">
+    <section className="atlas-section">
+      <div className="section-heading stacked">
         <p className="eyebrow">Summer leaderboard</p>
         <h2>Hottest Jun-Sep seasons in the record.</h2>
       </div>
@@ -399,7 +570,7 @@ function Records({ data }: { data: WeatherData }) {
   return (
     <section className="records-grid">
       <div className="panel">
-        <div className="panel-heading stacked">
+        <div className="section-heading stacked">
           <p className="eyebrow">Daily extremes</p>
           <h2>Hottest afternoons</h2>
         </div>
@@ -413,7 +584,7 @@ function Records({ data }: { data: WeatherData }) {
         </ol>
       </div>
       <div className="panel">
-        <div className="panel-heading stacked">
+        <div className="section-heading stacked">
           <p className="eyebrow">Night heat</p>
           <h2>Warmest minimums</h2>
         </div>
@@ -441,17 +612,25 @@ export function ClimateDashboard({ data }: { data: WeatherData }) {
 
   return (
     <main className="climate-shell">
-      <section className="hero">
-        <div className="hero-copy">
+      <header className="app-header">
+        <div>
           <p className="eyebrow">Tel Aviv Coast weather, 2005-2026</p>
-          <h1>The heat ledger for Tel Aviv{"'"}s increasingly heavy summers.</h1>
-          <p className="hero-text">{verdict}</p>
-          <div className="hero-actions">
-            <a href="#trends">Explore trends</a>
-            <a href="#daily">Inspect a year</a>
-          </div>
+          <h1>Tel Aviv Heat Ledger</h1>
         </div>
-        <div className="hero-card" aria-label="Headline climate statistics">
+        <nav className="top-nav" aria-label="Dashboard sections">
+          <a href="#historical">Daily chart</a>
+          <a href="#trends">Trends</a>
+          <a href="#daily">Daily scan</a>
+        </nav>
+      </header>
+
+      <section className="overview">
+        <div className="overview-copy">
+          <p className="status-label">Current read</p>
+          <h2>Complete years show a warmer Tel Aviv, with summer heating faster than the annual average.</h2>
+          <p>{verdict}</p>
+        </div>
+        <div className="headline-stats" aria-label="Headline climate statistics">
           <div>
             <span>Latest complete year</span>
             <strong>{lastYear.year}</strong>
@@ -488,6 +667,8 @@ export function ClimateDashboard({ data }: { data: WeatherData }) {
           <p>nights at or above 25 C in {lastYear.year}</p>
         </article>
       </section>
+
+      <HistoricalDailyChart data={data} />
 
       <section id="trends" className="dashboard-grid">
         <TrendChart annual={annual} />
