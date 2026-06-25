@@ -132,6 +132,12 @@ const tempColor = (value: number) => {
   return "#497996";
 };
 
+const yearColor = (year: number, years: number[]) => {
+  const index = Math.max(0, years.indexOf(year));
+  const hue = Math.round(scale(index, [0, Math.max(1, years.length - 1)], [199, 8]));
+  return `hsl(${hue} 72% 46%)`;
+};
+
 const averageByDayOfYear = (snapshots: WeatherData["yearSnapshots"]) => {
   const grouped = new Map<number, Day[]>();
 
@@ -162,10 +168,12 @@ const makeLine = <T extends { doy: number }>(
 function HistoricalDailyChart({ data }: { data: WeatherData }) {
   const years = data.yearSnapshots.map((entry) => entry.year);
   const [selectedYear, setSelectedYear] = useState(years.at(-1)!);
+  const [hoverYear, setHoverYear] = useState<number | null>(null);
   const [hoverDoy, setHoverDoy] = useState<number | null>(null);
   const [chartMode, setChartMode] = useState<"compare" | "allYears">("allYears");
+  const activeYear = hoverYear ?? selectedYear;
   const normals = useMemo(() => averageByDayOfYear(data.yearSnapshots), [data.yearSnapshots]);
-  const selected = data.yearSnapshots.find((entry) => entry.year === selectedYear)!;
+  const selected = data.yearSnapshots.find((entry) => entry.year === activeYear)!;
   const selectedByDoy = new Map(selected.days.map((day) => [day.doy, day]));
   const hoverDay =
     hoverDoy === null
@@ -277,12 +285,36 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
                 <path
                   key={year.year}
                   d={makeLine(year.days, (day) => day.tavg, x, y)}
-                  className={year.year === selectedYear ? "year-mean-line selected" : "year-mean-line"}
+                  className={year.year === activeYear ? "year-mean-line selected" : "year-mean-line"}
+                  style={{ stroke: yearColor(year.year, years) }}
+                  opacity={year.year === activeYear ? 1 : 0.2}
+                  onPointerEnter={() => setHoverYear(year.year)}
+                  onPointerLeave={() => setHoverYear(null)}
+                  onClick={() => setSelectedYear(year.year)}
                 >
                   <title>{`${year.year}: daily mean temperature`}</title>
                 </path>
               ))}
+              {data.yearSnapshots
+                .filter((year) => year.year !== activeYear)
+                .map((year) => (
+                  <path
+                    key={`${year.year}-hit`}
+                    d={makeLine(year.days, (day) => day.tavg, x, y)}
+                    className="year-hit-line"
+                    onPointerEnter={() => setHoverYear(year.year)}
+                    onPointerLeave={() => setHoverYear(null)}
+                    onClick={() => setSelectedYear(year.year)}
+                  />
+                ))}
               <path d={makeLine(normals, (day) => day.tavg, x, y)} className="normal-line normal-mean all-years-normal" />
+              {selected ? (
+                <path
+                  d={makeLine(selected.days, (day) => day.tavg, x, y)}
+                  className="year-mean-line selected active-overlay"
+                  style={{ stroke: yearColor(activeYear, years) }}
+                />
+              ) : null}
             </>
           ) : (
             <>
@@ -317,7 +349,10 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
           {chartMode === "allYears" ? (
             <>
               <span><i className="legend-swatch all-years-swatch" /> Daily mean, every year</span>
-              <span><i className="legend-swatch actual-mean-swatch" /> Highlighted year {selectedYear}</span>
+              <span>
+                <i className="legend-swatch actual-mean-swatch" style={{ background: yearColor(activeYear, years) }} />
+                {hoverYear ? "Hovering" : "Selected"} year {activeYear}
+              </span>
               <span><i className="legend-swatch normal-mean-swatch" /> Historical daily mean</span>
             </>
           ) : (
