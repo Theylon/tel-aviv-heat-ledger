@@ -250,6 +250,32 @@ h2 {
   font-weight: 800;
 }
 
+.segmented-control {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.22rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(246, 241, 230, 0.76);
+}
+
+.segmented-control button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.48rem 0.75rem;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.segmented-control button:hover,
+.segmented-control button.active {
+  background: var(--ink);
+  color: var(--paper-strong);
+}
+
 .year-select {
   min-width: 6.7rem;
   border: 1px solid var(--line-strong);
@@ -350,6 +376,24 @@ h2 {
   background: var(--gray);
 }
 
+.year-mean-line {
+  fill: none;
+  stroke: rgba(79, 159, 189, 0.24);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+.year-mean-line.selected {
+  stroke: var(--red);
+  stroke-width: 3;
+}
+
+.all-years-normal {
+  opacity: 0.92;
+  stroke-width: 4;
+}
+
 .actual-high-point {
   fill: var(--orange);
 }
@@ -444,6 +488,10 @@ h2 {
 
 .normal-mean-swatch {
   background: var(--green);
+}
+
+.all-years-swatch {
+  background: rgba(79, 159, 189, 0.42);
 }
 
 .legend {
@@ -640,6 +688,8 @@ h2 {
   }
 
   .chart-controls {
+    align-items: start;
+    flex-wrap: wrap;
     margin-top: 0.9rem;
   }
 

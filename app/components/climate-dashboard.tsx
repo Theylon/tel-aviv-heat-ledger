@@ -163,6 +163,7 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
   const years = data.yearSnapshots.map((entry) => entry.year);
   const [selectedYear, setSelectedYear] = useState(years.at(-1)!);
   const [hoverDoy, setHoverDoy] = useState<number | null>(null);
+  const [chartMode, setChartMode] = useState<"compare" | "allYears">("allYears");
   const normals = useMemo(() => averageByDayOfYear(data.yearSnapshots), [data.yearSnapshots]);
   const selected = data.yearSnapshots.find((entry) => entry.year === selectedYear)!;
   const selectedByDoy = new Map(selected.days.map((day) => [day.doy, day]));
@@ -179,7 +180,9 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
   const p = { top: 28, right: 28, bottom: 54, left: 54 };
   const allValues = [
     ...normals.flatMap((day) => [day.tmax, day.tmin, day.tavg]),
-    ...selected.days.flatMap((day) => [day.tmax, day.tmin, day.tavg]),
+    ...(chartMode === "allYears"
+      ? data.yearSnapshots.flatMap((year) => year.days.map((day) => day.tavg))
+      : selected.days.flatMap((day) => [day.tmax, day.tmin, day.tavg])),
   ];
   const yDomain = niceDomain(allValues, 2);
   const x = (doy: number) => scale(doy, [1, 366], [p.left, width - p.right]);
@@ -191,9 +194,29 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Daily values vs normal</p>
-          <h2>Compare any year against Tel Aviv{"'"}s historical daily pattern.</h2>
+          <h2>
+            {chartMode === "allYears"
+              ? "All years, daily mean temperature."
+              : "Compare any year against Tel Aviv's historical daily pattern."}
+          </h2>
         </div>
         <div className="chart-controls">
+          <div className="segmented-control" aria-label="Historical chart mode">
+            <button
+              type="button"
+              className={chartMode === "compare" ? "active" : ""}
+              onClick={() => setChartMode("compare")}
+            >
+              Year vs normal
+            </button>
+            <button
+              type="button"
+              className={chartMode === "allYears" ? "active" : ""}
+              onClick={() => setChartMode("allYears")}
+            >
+              All years
+            </button>
+          </div>
           <label htmlFor="history-year">Year</label>
           <select
             id="history-year"
@@ -226,7 +249,11 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
           }}
           onPointerLeave={() => setHoverDoy(null)}
         >
-          <title>Daily high, low, and mean temperatures compared with historical normals</title>
+          <title>
+            {chartMode === "allYears"
+              ? "Daily mean temperatures for every complete year"
+              : "Daily high, low, and mean temperatures compared with historical normals"}
+          </title>
           {[10, 15, 20, 25, 30, 35, 40].map((tick) => (
             <g key={tick}>
               <line x1={p.left} x2={width - p.right} y1={y(tick)} y2={y(tick)} className="grid-line" />
@@ -244,19 +271,42 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
             </g>
           ))}
 
-          <path d={makeLine(normals, (day) => day.tmax, x, y)} className="normal-line normal-max" />
-          <path d={makeLine(normals, (day) => day.tmin, x, y)} className="normal-line normal-min" />
-          <path d={makeLine(normals, (day) => day.tavg, x, y)} className="normal-line normal-mean" />
-          <path d={makeLine(selected.days, (day) => day.tmax, x, y)} className="actual-line actual-high" />
-          <path d={makeLine(selected.days, (day) => day.tmin, x, y)} className="actual-line actual-low" />
-          <path d={makeLine(selected.days, (day) => day.tavg, x, y)} className="actual-line actual-mean" />
+          {chartMode === "allYears" ? (
+            <>
+              {data.yearSnapshots.map((year) => (
+                <path
+                  key={year.year}
+                  d={makeLine(year.days, (day) => day.tavg, x, y)}
+                  className={year.year === selectedYear ? "year-mean-line selected" : "year-mean-line"}
+                >
+                  <title>{`${year.year}: daily mean temperature`}</title>
+                </path>
+              ))}
+              <path d={makeLine(normals, (day) => day.tavg, x, y)} className="normal-line normal-mean all-years-normal" />
+            </>
+          ) : (
+            <>
+              <path d={makeLine(normals, (day) => day.tmax, x, y)} className="normal-line normal-max" />
+              <path d={makeLine(normals, (day) => day.tmin, x, y)} className="normal-line normal-min" />
+              <path d={makeLine(normals, (day) => day.tavg, x, y)} className="normal-line normal-mean" />
+              <path d={makeLine(selected.days, (day) => day.tmax, x, y)} className="actual-line actual-high" />
+              <path d={makeLine(selected.days, (day) => day.tmin, x, y)} className="actual-line actual-low" />
+              <path d={makeLine(selected.days, (day) => day.tavg, x, y)} className="actual-line actual-mean" />
+            </>
+          )}
 
           {hoverDay && hoverX !== null ? (
             <g className="hover-layer">
               <line x1={hoverX} x2={hoverX} y1={p.top} y2={height - p.bottom} className="hover-rule" />
-              <circle cx={hoverX} cy={y(hoverDay.tmax)} r="4" className="actual-high-point" />
-              <circle cx={hoverX} cy={y(hoverDay.tavg)} r="4" className="actual-mean-point" />
-              <circle cx={hoverX} cy={y(hoverDay.tmin)} r="4" className="actual-low-point" />
+              {chartMode === "allYears" ? (
+                <circle cx={hoverX} cy={y(hoverDay.tavg)} r="4" className="actual-mean-point" />
+              ) : (
+                <>
+                  <circle cx={hoverX} cy={y(hoverDay.tmax)} r="4" className="actual-high-point" />
+                  <circle cx={hoverX} cy={y(hoverDay.tavg)} r="4" className="actual-mean-point" />
+                  <circle cx={hoverX} cy={y(hoverDay.tmin)} r="4" className="actual-low-point" />
+                </>
+              )}
             </g>
           ) : null}
         </svg>
@@ -264,23 +314,37 @@ function HistoricalDailyChart({ data }: { data: WeatherData }) {
 
       <div className="historical-readout">
         <div className="legend compact">
-          <span><i className="legend-swatch actual-high-swatch" /> Daily high {selectedYear}</span>
-          <span><i className="legend-swatch actual-low-swatch" /> Daily low {selectedYear}</span>
-          <span><i className="legend-swatch actual-mean-swatch" /> Daily mean {selectedYear}</span>
-          <span><i className="legend-swatch normal-mean-swatch" /> Historical normal</span>
+          {chartMode === "allYears" ? (
+            <>
+              <span><i className="legend-swatch all-years-swatch" /> Daily mean, every year</span>
+              <span><i className="legend-swatch actual-mean-swatch" /> Highlighted year {selectedYear}</span>
+              <span><i className="legend-swatch normal-mean-swatch" /> Historical daily mean</span>
+            </>
+          ) : (
+            <>
+              <span><i className="legend-swatch actual-high-swatch" /> Daily high {selectedYear}</span>
+              <span><i className="legend-swatch actual-low-swatch" /> Daily low {selectedYear}</span>
+              <span><i className="legend-swatch actual-mean-swatch" /> Daily mean {selectedYear}</span>
+              <span><i className="legend-swatch normal-mean-swatch" /> Historical normal</span>
+            </>
+          )}
         </div>
         <div className="tooltip-card" aria-live="polite">
           {hoverDay ? (
             <>
               <strong>{formatDate(hoverDay.date)}</strong>
-              <span>High {hoverDay.tmax.toFixed(1)} C</span>
+              {chartMode === "compare" ? <span>High {hoverDay.tmax.toFixed(1)} C</span> : null}
               <span>Mean {hoverDay.tavg.toFixed(1)} C</span>
-              <span>Low {hoverDay.tmin.toFixed(1)} C</span>
+              {chartMode === "compare" ? <span>Low {hoverDay.tmin.toFixed(1)} C</span> : null}
             </>
           ) : (
             <>
               <strong>Hover the chart</strong>
-              <span>Inspect daily highs, lows, and mean temperature.</span>
+              <span>
+                {chartMode === "allYears"
+                  ? "Inspect the highlighted year's daily mean across the calendar."
+                  : "Inspect daily highs, lows, and mean temperature."}
+              </span>
             </>
           )}
         </div>
